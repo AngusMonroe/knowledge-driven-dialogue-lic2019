@@ -1,0 +1,56 @@
+data: "outputs/intermediate/sd"         # prefix of .pt file
+save_model: "outputs/checkpoints/2019-5-1-transformer-8w"   # path to save model
+save_checkpoint_steps: 50
+log_file: "outputs/log/train.log"
+gpu_ranks: 0
+world_size: 1
+seed: 3435
+
+param_init: 0.0
+param_init_glorot: 'true'
+
+src_word_vec_size: 500
+tgt_word_vec_size: 500
+position_encoding: 'true'
+
+fix_word_vecs_enc: 'False'
+fix_word_vecs_dec: 'False'
+
+train_steps: 100000
+valid_steps: 50
+warmup_steps: 8000
+report_every: 50
+decoder_type: 'transformer'
+encoder_type: 'transformer'
+word_vec_size: 512
+rnn_size: 512
+layers: 6
+transformer_ff: 2048
+heads: 8
+accum_count: 8
+optim: adam
+adam_beta1: 0.9
+adam_beta2: 0.998
+# decay_method: noam
+learning_rate: 0.0001
+max_grad_norm: 0.0
+batch_size: 4096
+batch_type: "tokens"
+normalization: "tokens"
+dropout: 0.3
+label_smoothing: 0.1
+max_generator_batches: 2
+
+copy_attn: 'true'
+global_attention: mlp
+reuse_copy_attn: 'true'
+bridge: 'true'
+coverage_attn: "true"
+lambda_coverage: 1
+
+train_from: "outputs/20190511/valid/2019-5-1-transformer-8w_step_9000.pt"
+reset_optim: "keep_states"
+#
+#train_from: "outputs/checkpoints/nmt-transformer_step_9500.pt"
+#reset_optim: "all"
+

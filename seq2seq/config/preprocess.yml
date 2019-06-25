@@ -1,0 +1,32 @@
+# Data
+data_type: "text"
+train_src: "data/train.src"
+train_tgt: "data/train.tgt"
+valid_src: "data/dev.src"
+valid_tgt: "data/dev.tgt"
+save_data: "outputs/intermediate/sd"
+shard_size: 200000
+
+# Vocab
+src_vocab: ""   # existed vocab path
+tgt_vocab: ""
+src_vocab_size: 50000
+tgt_vocab_size: 50000
+src_words_min_frequency: 0
+tgt_words_min_frequency: 0
+dynamic_dict: "True"
+share_vocab: 'True'
+
+# Truncation
+src_seq_length: 256
+tgt_seq_length: 50
+lower: True
+filter_valid: True
+
+# Process
+shuffle: 0
+seed: 3435
+
+# Log
+log_file: "outputs/log/preprocess.log"
+

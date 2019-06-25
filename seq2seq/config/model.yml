@@ -1,0 +1,8 @@
+# Generator and loss Options
+copy_attn: "false"
+generator_function: "softmax"
+copy_attn_force: "false"
+reuse_copy_attn: "false"
+copy_loss_by_seqlength: "false"
+coverage_attn: "false"
+lambda_coverage: 1

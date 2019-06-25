@@ -1,0 +1,45 @@
+data: "outputs/intermediate/sd"         # prefix of .pt file
+save_model: "outputs/checkpoints/2019-5-1-60w-rnn-layer31"   # path to save model
+
+gpu_ranks: 0
+world_size: 1
+seed: -1
+
+save_checkpoint_steps: 3000
+keep_checkpoint: 10
+train_steps: 100000
+valid_steps: 3000
+report_every: 50
+
+# pre_word_vecs_enc: "outputs/intermediate/embeddings.enc.pt"
+# pre_word_vecs_dec: "outputs/intermediate/embeddings.dec.pt"
+
+encoder_type: brnn
+decoder_type: rnn
+src_word_vec_size: 128
+tgt_word_vec_size: 128
+enc_rnn_size: 256
+dec_rnn_size: 256
+enc_layers: 3
+dec_layers: 1
+
+optim: adam
+#adam_beta1: 0.9
+#adam_beta2: 0.998
+#decay_method: noam
+learning_rate: 0.0001
+max_grad_norm: 0.0
+
+batch_size: 16
+dropout: 0.0
+
+copy_attn: 'true'
+global_attention: mlp
+reuse_copy_attn: 'true'
+bridge: 'true'
+coverage_attn: "true"
+lambda_coverage: 1
+copy_loss_by_seqlength: "true"
+
+train_from: "outputs/checkpoints/2019-5-1-60w-rnn-layer31_step_30000.pt"
+reset_optim: "keep_states"
