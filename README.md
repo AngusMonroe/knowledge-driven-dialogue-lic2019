@@ -8,3 +8,5 @@ This part is implemented based on the [Open-NMT](https://github.com/OpenNMT/Open
 A GBDT rerank model, the feature extractions reference the [Kaggle_HomeDepot](https://github.com/ChenglongChen/Kaggle_HomeDepot) by Chenglong 
 ## Instructions
 A detailed doc is being on its road...
+## Checkpoints
+The checkpoints will be upload soon..
