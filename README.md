@@ -6,12 +6,12 @@ For building a proactive dialogue chatbot, we used a so-called generation-rerank
 ### Data Augmentation
 We used four data augmentation techniques, Entity Generalization,Knowledge Selection,Switch,Conversation Extraction to construct multiple different dataset for training Seq2Seq models. One can use the scripts Seq2Seq/preclean_*.py to with slight modification of parameters to get 6 datasets.
 ### Seq2Seq Model
-For ensemble purpose we choose different encoders and decoders, i.e. LSTM cells and the Transformer, for model diversity. This part is implemented based on the [Open-NMT](https://github.com/OpenNMT/OpenNMT-py) framework. <br>
+For ensemble purpose we choose different encoders and decoders, i.e. LSTM cells and the Transformer. This part is implemented based on the [Open-NMT](https://github.com/OpenNMT/OpenNMT-py) framework. <br>
 #### Training
 - python preprocess.py
 - python train.py
 #### Testing
-- python translate.py
+python translate.py <br>
 All the config file of training & testing can be easily modified in the config/*.yml <br>
 In total, we trained 27 Seq2Seq model for ensemble.
 ### Answer rank
