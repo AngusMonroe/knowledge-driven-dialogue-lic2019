@@ -1,22 +1,33 @@
+import pandas as pd
+import re
 from collections import Counter
 from eval import calc_bleu, calc_distinct, calc_f1
 import re
+import string
 import os
 import scipy
-from utils.pkl_util import to_pkl, load_pkl
+import numpy as np
+from pkl_util import to_pkl, load_pkl
 import operator
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 from sklearn.manifold import TSNE
+from sklearn.metrics.pairwise import cosine_similarity
+import config
+from utils import dist_utils, ngram_utils, nlp_utils, np_utils, pkl_utils
+import sys
 import string
 from collections import defaultdict
-import gensim
+# import torch
+
 import numpy as np
 import pandas as pd
+
 import config
-from utils import dist_utils, ngram_utils, nlp_utils, np_utils
+from utils import dist_utils, ngram_utils, nlp_utils, np_utils, pkl_utils
+from utils import logging_utils, time_utils
 from feature_base import BaseEstimator
 from multiprocessing import Pool
 
@@ -119,8 +130,8 @@ def entity_cooccur(pred, src):
                 n += 1
     return n
 
-
 class VectorSpace:
+
     ## word based
     def _init_word_bow(self, ngram, vocabulary=None):
         bow = CountVectorizer(min_df=3,
@@ -806,537 +817,9 @@ def mean_word_freq(s):
     return n/len(count)
 
 
-# How many ngrams of obs are in target?
-# Obs: [AB, AB, AB, AC, DE, CD]
-# Target: [AB, AC, AB, AD, ED]
-# ->
-# IntersectCount: 4 (i.e., AB, AB, AB, AC)
-# IntersectRatio: 4/6
-class IntersectCount_Ngram(BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode)
-        self.ngram = ngram
-        self.ngram_str = ngram_utils._ngram_str_map[self.ngram]
-        self.str_match_threshold = str_match_threshold
-
-    def __name__(self):
-        return "IntersectCount_%s" % self.ngram_str
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        s = 0.
-        for w1 in obs_ngrams:
-            for w2 in target_ngrams:
-                if dist_utils._is_str_match(w1, w2, self.str_match_threshold):
-                    s += 1.
-                    break
-        return s
-
-
-class IntersectRatio_Ngram(BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode)
-        self.ngram = ngram
-        self.ngram_str = ngram_utils._ngram_str_map[self.ngram]
-        self.str_match_threshold = str_match_threshold
-
-    def __name__(self):
-        return "IntersectRatio_%s" % self.ngram_str
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        s = 0.
-        for w1 in obs_ngrams:
-            for w2 in target_ngrams:
-                if dist_utils._is_str_match(w1, w2, self.str_match_threshold):
-                    s += 1.
-                    break
-        return np_utils._try_divide(s, len(obs_ngrams))
-
-
-# ----------------------------------------------------------------------------
-# How many cooccurrence ngrams between obs and target?
-# Obs: [AB, AB, AB, AC, DE, CD]
-# Target: [AB, AC, AB, AD, ED]
-# ->
-# CooccurrenceCount: 7 (i.e., AB x 2 + AB x 2 + AB x 2 + AC x 1)
-# CooccurrenceRatio: 7/(6 x 5)
-class CooccurrenceCount_Ngram(BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode)
-        self.ngram = ngram
-        self.ngram_str = ngram_utils._ngram_str_map[self.ngram]
-        self.str_match_threshold = str_match_threshold
-
-    def __name__(self):
-        return "CooccurrenceCount_%s" % self.ngram_str
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        s = 0.
-        for w1 in obs_ngrams:
-            for w2 in target_ngrams:
-                if dist_utils._is_str_match(w1, w2, self.str_match_threshold):
-                    s += 1.
-        return s
-
-
-class CooccurrenceRatio_Ngram(BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode)
-        self.ngram = ngram
-        self.ngram_str = ngram_utils._ngram_str_map[self.ngram]
-        self.str_match_threshold = str_match_threshold
-
-    def __name__(self):
-        return "CooccurrenceRatio_%s" % self.ngram_str
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        s = 0.
-        for w1 in obs_ngrams:
-            for w2 in target_ngrams:
-                if dist_utils._is_str_match(w1, w2, self.str_match_threshold):
-                    s += 1.
-        return np_utils._try_divide(s, len(obs_ngrams) * len(target_ngrams))
-
-
-token_pattern = " "  # just split the text into tokens
-
-
-def _inter_pos_list(obs, target):
-    """
-        Get the list of positions of obs in target
-    """
-    pos_list = [0]
-    if len(obs) != 0:
-        pos_list = [i for i, o in enumerate(obs, start=1) if o in target]
-        if len(pos_list) == 0:
-            pos_list = [0]
-    return pos_list
-
-
-def _inter_norm_pos_list(obs, target):
-    pos_list = _inter_pos_list(obs, target)
-    N = len(obs)
-    return [np_utils._try_divide(i, N) for i in pos_list]
-
-
-class IntersectPosition_Ngram(BaseEstimator):
-    """Single aggregation features"""
-
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode)
-        self.ngram = ngram
-        self.ngram_str = ngram_utils._ngram_str_map[self.ngram]
-
-    def __name__(self):
-        if isinstance(self.aggregation_mode, str):
-            feat_name = "IntersectPosition_%s_%s" % (
-                self.ngram_str, string.capwords(self.aggregation_mode))
-        elif isinstance(self.aggregation_mode, list):
-            feat_name = ["IntersectPosition_%s_%s" % (
-                self.ngram_str, string.capwords(m)) for m in self.aggregation_mode]
-        return feat_name
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        pos_list = _inter_pos_list(obs_ngrams, target_ngrams)
-        return pos_list
-
-
-class IntersectNormPosition_Ngram(BaseEstimator):
-    """Single aggregation features"""
-
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode)
-        self.ngram = ngram
-        self.ngram_str = ngram_utils._ngram_str_map[self.ngram]
-
-    def __name__(self):
-        if isinstance(self.aggregation_mode, str):
-            feat_name = "IntersectNormPosition_%s_%s" % (
-                self.ngram_str, string.capwords(self.aggregation_mode))
-        elif isinstance(self.aggregation_mode, list):
-            feat_name = ["IntersectNormPosition_%s_%s" % (
-                self.ngram_str, string.capwords(m)) for m in self.aggregation_mode]
-        return feat_name
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        pos_list = _inter_norm_pos_list(obs_ngrams, target_ngrams)
-        return pos_list
-
-
-class Count_Ngram_BaseEstimator(BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, idx, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode)
-        self.idx = idx
-        self.ngram = ngram
-        self.ngram_str = ngram_utils._ngram_str_map[self.ngram]
-        self.str_match_threshold = str_match_threshold
-
-    def _get_match_count(self, obs, target, idx):
-        cnt = 0
-        if (len(obs) != 0) and (len(target) != 0):
-            for word in target:
-                if dist_utils._is_str_match(word, obs[idx], self.str_match_threshold):
-                    cnt += 1
-        return cnt
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        return self._get_match_count(obs_ngrams, target_ngrams, self.idx)
-
-
-class FirstIntersectCount_Ngram(Count_Ngram_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, ngram, 0, aggregation_mode, str_match_threshold)
-
-    def __name__(self):
-        return "FirstIntersectCount_%s" % self.ngram_str
-
-
-class LastIntersectCount_Ngram(Count_Ngram_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, ngram, -1, aggregation_mode, str_match_threshold)
-
-    def __name__(self):
-        return "LastIntersectCount_%s" % self.ngram_str
-
-
-# ------------------------- Ratio -------------------------------------------
-class Ratio_Ngram_BaseEstimator(Count_Ngram_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, idx, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, ngram, idx, aggregation_mode, str_match_threshold)
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        return np_utils._try_divide(self._get_match_count(obs_ngrams, target_ngrams, self.idx), len(target_ngrams))
-
-
-class FirstIntersectRatio_Ngram(Ratio_Ngram_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, ngram, 0, aggregation_mode, str_match_threshold)
-
-    def __name__(self):
-        return "FirstIntersectRatio_%s" % self.ngram_str
-
-
-class LastIntersectRatio_Ngram(Ratio_Ngram_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode="",
-                 str_match_threshold=config.STR_MATCH_THRESHOLD):
-        super().__init__(obs_corpus, target_corpus, ngram, -1, aggregation_mode, str_match_threshold)
-
-    def __name__(self):
-        return "LastIntersectRatio_%s" % self.ngram_str
-
-
-# -------------------- Position ---------------------
-class Position_Ngram_BaseEstimator(BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, idx, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode)
-        self.idx = idx
-        self.ngram = ngram
-        self.ngram_str = ngram_utils._ngram_str_map[self.ngram]
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        return _inter_pos_list(target_ngrams, [obs_ngrams[self.idx]])
-
-
-class FirstIntersectPosition_Ngram(Position_Ngram_BaseEstimator):
-    """Single aggregation features"""
-
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, ngram, 0, aggregation_mode)
-
-    def __name__(self):
-        if isinstance(self.aggregation_mode, str):
-            feat_name = "FirstIntersectPosition_%s_%s" % (
-                self.ngram_str, string.capwords(self.aggregation_mode))
-        elif isinstance(self.aggregation_mode, list):
-            feat_name = ["FirstIntersectPosition_%s_%s" % (
-                self.ngram_str, string.capwords(m)) for m in self.aggregation_mode]
-        return feat_name
-
-
-class LastIntersectPosition_Ngram(Position_Ngram_BaseEstimator):
-    """Single aggregation features"""
-
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, ngram, -1, aggregation_mode)
-
-    def __name__(self):
-        if isinstance(self.aggregation_mode, str):
-            feat_name = "LastIntersectPosition_%s_%s" % (
-                self.ngram_str, string.capwords(self.aggregation_mode))
-        elif isinstance(self.aggregation_mode, list):
-            feat_name = ["LastIntersectPosition_%s_%s" % (
-                self.ngram_str, string.capwords(m)) for m in self.aggregation_mode]
-        return feat_name
-
-
-# -------------------------- Norm Position ----------------------------------
-class NormPosition_Ngram_BaseEstimator(BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, ngram, idx, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode)
-        self.idx = idx
-        self.ngram = ngram
-        self.ngram_str = ngram_utils._ngram_str_map[self.ngram]
-
-    def transform_one(self, obs, target, id):
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        obs_ngrams = ngram_utils._ngrams(obs_tokens, self.ngram)
-        target_ngrams = ngram_utils._ngrams(target_tokens, self.ngram)
-        return _inter_norm_pos_list(target_ngrams, [obs_ngrams[self.idx]])
-
-
-class FirstIntersectNormPosition_Ngram(NormPosition_Ngram_BaseEstimator):
-    """Single aggregation features"""
-
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, ngram, 0, aggregation_mode)
-
-    def __name__(self):
-        if isinstance(self.aggregation_mode, str):
-            feat_name = "FirstIntersectNormPosition_%s_%s" % (
-                self.ngram_str, string.capwords(self.aggregation_mode))
-        elif isinstance(self.aggregation_mode, list):
-            feat_name = ["FirstIntersectNormPosition_%s_%s" % (
-                self.ngram_str, string.capwords(m)) for m in self.aggregation_mode]
-        return feat_name
-
-
-class LastIntersectNormPosition_Ngram(NormPosition_Ngram_BaseEstimator):
-    """Single aggregation features"""
-
-    def __init__(self, obs_corpus, target_corpus, ngram, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, ngram, -1, aggregation_mode)
-
-    def __name__(self):
-        if isinstance(self.aggregation_mode, str):
-            feat_name = "LastIntersectNormPosition_%s_%s" % (
-                self.ngram_str, string.capwords(self.aggregation_mode))
-        elif isinstance(self.aggregation_mode, list):
-            feat_name = ["LastIntersectNormPosition_%s_%s" % (
-                self.ngram_str, string.capwords(m)) for m in self.aggregation_mode]
-        return feat_name
-
-
-# ------------------------ Word2Vec Features -------------------------
-class Word2Vec_BaseEstimator(BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, word2vec_model, model_prefix,
-                 aggregation_mode="", aggregation_mode_prev=""):
-        super().__init__(obs_corpus, target_corpus, aggregation_mode, None, aggregation_mode_prev)
-        self.model = word2vec_model
-        self.model_prefix = model_prefix
-        self.vector_size = word2vec_model.vector_size
-
-    def _get_valid_word_list(self, text):
-        return [w for w in text.lower().split(" ") if w in self.model]
-
-    def _get_importance(self, text1, text2):
-        len_prev_1 = len(text1.split(" "))
-        len_prev_2 = len(text2.split(" "))
-        len1 = len(self._get_valid_word_list(text1))
-        len2 = len(self._get_valid_word_list(text2))
-        imp = np_utils._try_divide(len1 + len2, len_prev_1 + len_prev_2)
-        return imp
-
-    def _get_n_similarity(self, text1, text2):
-        lst1 = self._get_valid_word_list(text1)
-        lst2 = self._get_valid_word_list(text2)
-        if len(lst1) > 0 and len(lst2) > 0:
-            return self.model.n_similarity(lst1, lst2)
-        else:
-            return config.MISSING_VALUE_NUMERIC
-
-    def _get_n_similarity_imp(self, text1, text2):
-        sim = self._get_n_similarity(text1, text2)
-        imp = self._get_importance(text1, text2)
-        return sim * imp
-
-    def _get_centroid_vector(self, text):
-        lst = self._get_valid_word_list(text)
-        centroid = np.zeros(self.vector_size)
-        for w in lst:
-            centroid += self.model[w]
-        if len(lst) > 0:
-            centroid /= float(len(lst))
-        return centroid
-
-    def _get_centroid_vdiff(self, text1, text2):
-        centroid1 = self._get_centroid_vector(text1)
-        centroid2 = self._get_centroid_vector(text2)
-        return dist_utils._vdiff(centroid1, centroid2)
-
-    def _get_centroid_rmse(self, text1, text2):
-        centroid1 = self._get_centroid_vector(text1)
-        centroid2 = self._get_centroid_vector(text2)
-        return dist_utils._rmse(centroid1, centroid2)
-
-    def _get_centroid_rmse_imp(self, text1, text2):
-        rmse = self._get_centroid_rmse(text1, text2)
-        imp = self._get_importance(text1, text2)
-        return rmse * imp
-
-
-class Word2Vec_Centroid_Vector(Word2Vec_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode)
-
-    def __name__(self):
-        return "Word2Vec_%s_D%d_Centroid_Vector" % (self.model_prefix, self.vector_size)
-
-    def transform_one(self, obs, target, id):
-        return self._get_centroid_vector(obs)
-
-
-class Word2Vec_Importance(Word2Vec_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode)
-
-    def __name__(self):
-        return "Word2Vec_%s_D%d_Importance" % (self.model_prefix, self.vector_size)
-
-    def transform_one(self, obs, target, id):
-        return self._get_importance(obs, target)
-
-
-class Word2Vec_N_Similarity(Word2Vec_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode)
-
-    def __name__(self):
-        return "Word2Vec_%s_D%d_N_Similarity" % (self.model_prefix, self.vector_size)
-
-    def transform_one(self, obs, target, id):
-        return self._get_n_similarity(obs, target)
-
-
-class Word2Vec_N_Similarity_Imp(Word2Vec_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode)
-
-    def __name__(self):
-        return "Word2Vec_%s_D%d_N_Similarity_Imp" % (self.model_prefix, self.vector_size)
-
-    def transform_one(self, obs, target, id):
-        return self._get_n_similarity_imp(obs, target)
-
-
-class Word2Vec_Centroid_RMSE(Word2Vec_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode)
-
-    def __name__(self):
-        return "Word2Vec_%s_D%d_Centroid_RMSE" % (self.model_prefix, self.vector_size)
-
-    def transform_one(self, obs, target, id):
-        return self._get_centroid_rmse(obs, target)
-
-
-class Word2Vec_Centroid_RMSE_IMP(Word2Vec_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode)
-
-    def __name__(self):
-        return "Word2Vec_%s_D%d_Centroid_RMSE_IMP" % (self.model_prefix, self.vector_size)
-
-    def transform_one(self, obs, target, id):
-        return self._get_centroid_rmse_imp(obs, target)
-
-
-class Word2Vec_Centroid_Vdiff(Word2Vec_BaseEstimator):
-    def __init__(self, obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode=""):
-        super().__init__(obs_corpus, target_corpus, word2vec_model, model_prefix, aggregation_mode)
-
-    def __name__(self):
-        return "Word2Vec_%s_D%d_Centroid_Vdiff" % (self.model_prefix, self.vector_size)
-
-    def transform_one(self, obs, target, id):
-        return self._get_centroid_vdiff(obs, target)
-
-
-class Word2Vec_CosineSim(Word2Vec_BaseEstimator):
-    """Double aggregation features"""
-
-    def __init__(self, obs_corpus, target_corpus, word2vec_model, model_prefix,
-                 aggregation_mode="", aggregation_mode_prev=""):
-        super().__init__(obs_corpus, target_corpus, word2vec_model, model_prefix,
-                         aggregation_mode, aggregation_mode_prev)
-
-    def __name__(self):
-        feat_name = []
-        for m1 in self.aggregation_mode_prev:
-            for m in self.aggregation_mode:
-                n = "Word2Vec_%s_D%d_CosineSim_%s_%s" % (
-                    self.model_prefix, self.vector_size, string.capwords(m1), string.capwords(m))
-                feat_name.append(n)
-        return feat_name
-
-    def transform_one(self, obs, target, id):
-        val_list = []
-        obs_tokens = nlp_utils._tokenize(obs, token_pattern)
-        target_tokens = nlp_utils._tokenize(target, token_pattern)
-        for obs_token in obs_tokens:
-            _val_list = []
-            if obs_token in self.model:
-                for target_token in target_tokens:
-                    if target_token in self.model:
-                        sim = dist_utils._cosine_sim(self.model[obs_token], self.model[target_token])
-                        _val_list.append(sim)
-            if len(_val_list) == 0:
-                _val_list = [config.MISSING_VALUE_NUMERIC]
-            val_list.append(_val_list)
-        if len(val_list) == 0:
-            val_list = [[config.MISSING_VALUE_NUMERIC]]
-        return val_list
-
 # df features
-def run_df_feature(train_raw_data, test_raw_data):
-    df_train = pd.read_csv(train_raw_data, sep="\t")
-    df_test = pd.read_csv(test_raw_data, sep="\t")
-    df = pd.concat((df_train, df_test), ignore_index=True)
-    del df_train, df_test
+def run_df_feature(raw_data):
+    df = pd.read_csv(raw_data, sep="\t")
     print(df.head())
     df["pred_word_length"] = df["preds"].apply(lambda s: len(s.split()))
     df["pred_char_length"] = df["preds"].apply(lambda s: len(s.replace(" ", "")))
@@ -1388,13 +871,6 @@ def run_lsa_char_ngram(df, field):
         x = ext.transform()
         save_path = "features/feature_lsa_char_%d_gram_%s.pkl"%(n_gram, field)
         to_pkl(x, save_path)
-
-def run_tsne_lsa(df, field, generator, n_gram):
-    obj_corpus = df[field].values
-    ext = generator(obj_corpus, None, n_gram, config.SVD_DIM, config.SVD_N_ITER)
-    x = ext.transform()
-    save_path = "features/feature_%d_gram_%s_%s.pkl" % (n_gram, ext.__name__(), field)
-    to_pkl(x, save_path)
 
 # LSA n gram cosinesim
 def run_lsa_ngram_cosinesim(obj_field, target_field):
@@ -1475,77 +951,19 @@ def run_tfidf(obj_field, target_field, generator, n_gram):
     save_path = "features/feature_%d_gram_%s_%s_%s.pkl"%(n_gram, ext.__name__(), obj_field, target_field)
     to_pkl(x, save_path)
 
-def run_intersect_count(obj_field, target_field, generator, n_gram):
-    obj_corpus = df[obj_field].values
-    tgt_corpus = df[target_field].values
-    ext = generator(obj_corpus, tgt_corpus, ngram=n_gram)
-    x = ext.transform()
-    print(x.shape)
-    save_path = "features/feature_%d_gram_%s_%s_%s.pkl" % (n_gram, ext.__name__(), obj_field, target_field)
-    to_pkl(x, save_path)
-
-def run_intersect_position(obj_field, target_field, generator, n_gram):
-    obj_corpus = df[obj_field].values
-    tgt_corpus = df[target_field].values
-    aggregation_mode = ["mean", "std", "max", "min", "median"]
-    ext = generator(obj_corpus, tgt_corpus, ngram=n_gram, aggregation_mode=aggregation_mode)
-    x = ext.transform()
-    print(x.shape)
-    save_path = "features/feature_%d_gram_%s_%s_%s.pkl" % (n_gram, ext.__name__(), obj_field, target_field)
-    to_pkl(x, save_path)
-
-def run_count(obj_field, target_field, generator, n_gram):
-    obj_corpus = df[obj_field].values
-    tgt_corpus = df[target_field].values
-    # aggregation_mode = ["mean", "std", "max", "min", "median"]
-    ext = generator(obj_corpus, tgt_corpus, ngram=n_gram)
-    x = ext.transform()
-    print(x.shape)
-    save_path = "features/feature_%d_gram_%s_%s_%s.pkl" % (n_gram, ext.__name__(), obj_field, target_field)
-    to_pkl(x, save_path)
-
-def run_tsne(obj_field, target_field, generator, n_gram):
-    obj_corpus = df[obj_field].values
-    tgt_corpus = df[target_field].values
-    ext = generator(obj_corpus, tgt_corpus, ngram=n_gram)
-    x = ext.transform()
-    print(x.shape)
-    save_path = "features/feature_%d_gram_%s_%s_%s.pkl" % (n_gram, ext.__name__(), obj_field, target_field)
-    to_pkl(x, save_path)
-
-def run_word2vec(obj_field, target_field, generator, model, model_prefix="Google"):
-    obj_corpus = df[obj_field].values
-    tgt_corpus = df[target_field].values
-    ext = generator(obj_corpus, tgt_corpus, model, model_prefix)
-    x = ext.transform()
-    print(x.shape)
-    save_path = "features/feature_%s_%s_%s.pkl" % (ext.__name__(), obj_field, target_field)
-    to_pkl(x, save_path)
-
-def run_word2vec_sim(obj_field, target_field, generator, model, model_prefix="Google"):
-    aggregation_mode_prev = ["mean", "max", "min", "median"]
-    aggregation_mode = ["mean", "std", "max", "min", "median"]
-    obj_corpus = df[obj_field].values
-    tgt_corpus = df[target_field].values
-    ext = generator(obj_corpus, tgt_corpus, model, model_prefix, aggregation_mode, aggregation_mode_prev)
-    x = ext.transform()
-    print(x.shape)
-    save_path = "features/feature_%s_%s_%s.pkl" % (ext.__name__(), obj_field, target_field)
-    to_pkl(x, save_path)
-
 
 def dump_df_feature(df, fields):
     for field in fields:
         data = df[field].values
         save_path = "features/feature_%s.pkl" % (field)
         to_pkl(data, save_path)
-
+        # torch.save(data, save_path)
 
 def dumps_y(df):
     y = df["score"].values
-    save_path = "features/0520/y_27.pkl"
+    save_path = "features/train/y_10.pkl"
     to_pkl(y, save_path)
-
+    # torch.save(y, save_path)
 
 def feature_combine(feature_dir):
     features = []
@@ -1558,193 +976,59 @@ def feature_combine(feature_dir):
             feature = feature[np.newaxis, :].transpose()
         features.append(feature)
     print("features", len(features))
-    X1 = np.concatenate(features[:20], axis=1)
-    X2 = np.concatenate(features[20:50], axis=1)
-    X3 = np.concatenate(features[50:70], axis=1)
-    X4 = np.concatenate(features[70:90], axis=1)
-    X5 = np.concatenate(features[90:110], axis=1)
-    X6 = np.concatenate(features[110:130], axis=1)
-    X7 = np.concatenate(features[130:], axis=1)
-    # X = np.concatenate(features, axis=1)
-    print("X1 shape is:", X1.shape)
-    print("X2 shape is:", X2.shape)
-    to_pkl(X1, "features/0520/X1_27.pkl")
-    to_pkl(X2, "features/0520/X2_27.pkl")
-    to_pkl(X3, "features/0520/X3_27.pkl")
-    to_pkl(X4, "features/0520/X4_27.pkl")
-    to_pkl(X5, "features/0520/X5_27.pkl")
-    to_pkl(X6, "features/0520/X6_27.pkl")
-    to_pkl(X7, "features/0520/X7_27.pkl")
-    # to_pkl(X, "features/train/X_27.pkl")
+    X = np.concatenate(features, axis=1)
+    print("X shape is:", X.shape)
+    to_pkl(X, "features/train/X_10.pkl")
 
 
+if __name__ == '__main__':
+    df = run_df_feature(config.raw_data)
+    run_lsa_ngram(df, "preds")
+    run_lsa_ngram(df, "src")
 
-def run_lsa_ngram_cosinesim_p(obj_fields, target_fields):
+    run_lsa_char_ngram(df, "preds")
+    run_lsa_char_ngram(df, "src")
+    #
+    obj_fields = ["preds"]
+    target_fields = ["src", "goal_and_knowledge", "conver", "last_conver"]
     for obj_field in obj_fields:
         for target_field in target_fields:
             run_lsa_ngram_cosinesim(obj_field, target_field)
 
-
-def run_lsa_char_ngram_cosinesim_p(obj_fields, target_fields):
     for obj_field in obj_fields:
         for target_field in target_fields:
-            # pool.apply_async(run_lsa_char_ngram_cosinesim, args=(obj_field, target_field))
             run_lsa_char_ngram_cosinesim(obj_field, target_field)
 
-def run_tfidf_ngram_cosinesim_p(obj_fields, target_fields):
     for obj_field in obj_fields:
         for target_field in target_fields:
-            # pool.apply_async(run_tfidf_ngram_cosinesim, args=(obj_field, target_field))
             run_tfidf_ngram_cosinesim(obj_field, target_field)
 
-def run_tfidf_char_ngram_cosinesim_p(obj_fields, target_fields):
     for obj_field in obj_fields:
         for target_field in target_fields:
             run_tfidf_char_ngram_cosinesim(obj_field, target_field)
 
-
-def run_char_dist_sim_p(obj_fields, target_fields):
     generators = [CharDistribution_Ratio, CharDistribution_CosineSim, CharDistribution_KL]
     for obj_field in obj_fields:
         for target_field in target_fields:
             for generator in generators:
                 run_char_dist_sim(obj_field, target_field, generator)
 
-def run_lsa_ngram_cooc_p(obj_fields, target_fields):
     generators = [LSA_Word_Ngram_Cooc]
     for obj_field in obj_fields:
         for target_field in target_fields:
             for generator in generators:
-                pool.apply_async(run_lsa_ngram_cooc, args=(obj_field, target_field, generator))
-                #run_lsa_ngram_cooc(obj_field, target_field, generator)
+                run_lsa_ngram_cooc(obj_field, target_field, generator)
 
+    # generators = [StatCoocTF_Ngram, StatCoocNormTF_Ngram, StatCoocTFIDF_Ngram, StatCoocNormTFIDF_Ngram,
+    #               StatCoocBM25_Ngram]
+    # n_grams = [1, 2]
+    # for obj_field in obj_fields:
+    #     for target_field in target_fields:
+    #         for generator in generators:
+    #             for n_gram in n_grams:
+    #                 run_tfidf(obj_field, target_field, generator, n_gram)
 
-def run_tfidf_p(obj_fields, target_fields):
-    generators = [StatCoocTF_Ngram, StatCoocNormTF_Ngram, StatCoocTFIDF_Ngram, StatCoocNormTFIDF_Ngram,
-                  StatCoocBM25_Ngram]
-    n_grams = [1, 2, 3]
-    for obj_field in obj_fields:
-        for target_field in target_fields:
-            for generator in generators:
-                for n_gram in n_grams:
-                    pool.apply_async(run_tfidf, args=(obj_field, target_field, generator, n_gram))
-                    # run_tfidf(obj_field, target_field, generator, n_gram)
-
-def run_intersect_count_p(obj_fields, target_fields):
-    generators = [
-        IntersectCount_Ngram,
-        IntersectRatio_Ngram,
-        CooccurrenceCount_Ngram,
-        CooccurrenceRatio_Ngram,
-    ]
-    n_grams = [1, 2, 3]
-    for obj_field in obj_fields:
-        for target_field in target_fields:
-            for generator in generators:
-                for n_gram in n_grams:
-                    run_intersect_count(obj_field, target_field, generator, n_gram)
-
-def run_intersect_position_p(obj_fields, target_fields):
-    generators = [
-        IntersectPosition_Ngram,
-        IntersectNormPosition_Ngram,
-    ]
-    n_grams = [1, 2, 3]
-    for obj_field in obj_fields:
-        for target_field in target_fields:
-            for generator in generators:
-                for n_gram in n_grams:
-                    run_intersect_position(obj_field, target_field, generator, n_gram)
-
-def run_count_p(obj_fields, target_fields):
-    generators = [
-        FirstIntersectCount_Ngram,
-        LastIntersectCount_Ngram,
-        FirstIntersectRatio_Ngram,
-        LastIntersectRatio_Ngram,
-    ]
-    n_grams = [1, 2, 3]
-    for obj_field in obj_fields:
-        for target_field in target_fields:
-            for generator in generators:
-                for n_gram in n_grams:
-                    run_intersect_position(obj_field, target_field, generator, n_gram)
-
-def run_tsne_p(obj_fields, target_fields):
-    generators = [TSNE_LSA_Word_Ngram_Pair]
-    n_grams = [1, 2]
-    for obj_field in obj_fields:
-        for target_field in target_fields:
-            for generator in generators:
-                for n_gram in n_grams:
-                    pool.apply_async(run_tsne, args=(obj_field, target_field, generator, n_gram))
-
-def run_tsne_lsa_p(df):
-    fields = ["preds", "src"]
-    n_grams = [1, 2]
-    generators = [TSNE_LSA_Word_Ngram, TSNE_LSA_Char_Ngram]
-    for field in fields:
-        for generator in generators:
-            for n_gram in n_grams:
-                pool.apply_async(run_tsne_lsa, args=(df, field, generator, n_gram))
-
-def run_word2vec_p(obj_fields, target_fields, word2vec_model_dir):
-    model = gensim.models.Word2Vec.load(word2vec_model_dir)
-    generators = [
-        Word2Vec_Importance,
-        Word2Vec_N_Similarity,
-        Word2Vec_N_Similarity_Imp,
-        Word2Vec_Centroid_RMSE,
-        Word2Vec_Centroid_RMSE_IMP,
-        # Word2Vec_Centroid_Vdiff,
-    ]
-    for obj_field in obj_fields:
-        for target_field in target_fields:
-            for generator in generators:
-                pool.apply_async(run_word2vec, args=(obj_field, target_field, generator, model))
-
-def run_word2vec_sim_p(obj_fields, target_fields, word2vec_model_dir):
-    model = gensim.models.Word2Vec.load(word2vec_model_dir)
-    generators = [
-        Word2Vec_CosineSim,
-    ]
-    for obj_field in obj_fields:
-        for target_field in target_fields:
-            for generator in generators:
-                pool.apply_async(run_word2vec_sim, args=(obj_field, target_field, generator, model))
-
-
-if __name__ == '__main__':
-    # df = run_df_feature(config.train_raw_data, config.test_raw_data)
-    # to_pkl(df, "features/train/df_27_raw.pkl")
-    df = load_pkl("features/train/df_27_raw.pkl")
-    # obj_fields = ["preds"]
-    # target_fields = ["src", "goal_and_knowledge", "conver", "last_conver"]
-    # pool = Pool()
-    # pool.apply_async(run_lsa_ngram, args=(df, "preds"))
-    # pool.apply_async(run_lsa_ngram, args=(df, "src"))
-    # pool.apply_async(run_lsa_char_ngram, args=(df, "preds"))
-    # pool.apply_async(run_lsa_char_ngram, args=(df, "src"))
-    # pool.apply_async(run_lsa_ngram_cosinesim_p, args=(obj_fields, target_fields))
-    # pool.apply_async(run_lsa_char_ngram_cosinesim_p, args=(obj_fields, target_fields))
-    # pool.apply_async(run_tfidf_ngram_cosinesim_p, args=(obj_fields, target_fields))
-    # pool.apply_async(run_tfidf_char_ngram_cosinesim_p, args=(obj_fields, target_fields))
-    # pool.apply_async(run_char_dist_sim_p, args=(obj_fields, target_fields))
-    # run_lsa_ngram_cooc_p(obj_fields, target_fields)
-    # run_tfidf_p(obj_fields, target_fields)
-    # pool.apply_async(run_intersect_count_p, args=(obj_fields, target_fields))         --
-    # pool.apply_async(run_intersect_position_p, args=(obj_fields, target_fields))
-    # pool.apply_async(run_count_p, args=(obj_fields, target_fields))                   --
-    # run_tsne_p(obj_fields, target_fields)
-    # run_tsne_lsa_p(df)
-    # run_word2vec_p(obj_fields, target_fields, word2vec_model_dir="EDA/Google-word2vec-100d.model")
-    # run_word2vec_sim_p(obj_fields, target_fields, word2vec_model_dir="EDA/Google-word2vec-100d.model")
-    # pool.close()
-    # pool.join()
-    # print("all features created...")
-
-    fields = ["beam_score", "model_weight", "max_word_freq", "mean_word_freq",
-              'pred_word_length', 'pred_char_length', 'bleu1_pred_src',
+    fields = ["beam_score","model_weight", "max_word_freq", "mean_word_freq", 'pred_word_length', 'pred_char_length', 'bleu1_pred_src',
               'bleu2_pred_src', 'bleu1_pred_conver', 'bleu2_pred_conver',
               'bleu1_pred_last_conver', 'bleu2_pred_last_conver',
               'pred_is_question_sent', 'entity_overlap_num', 'f1_pred_src',
@@ -1753,17 +1037,19 @@ if __name__ == '__main__':
               'distinct1_pred_last_conver', 'distinct2_pred_last_conver',
               'pred_gk_cooccur', 'last_conver_is_question_sent',
               'pred_repeat_word_cnt']
-
     dump_df_feature(df, fields)
-    #
+
+
     if config.is_training:
         features = feature_combine("./features/")
         dumps_y(df)
     else:
         features = feature_combine("./features/")
-    # if config.is_training:
-    #     #     score = df["score"].values
-    #     #     to_pkl(score, "features/train/y_0516w.pkl")
-    #     # feature = df.as_matrix(columns=fields)
-    #     # print(feature.shape)
-    #     # to_pkl(feature, "features/train/X_0516.pkl")
+
+
+
+
+
+
+
+

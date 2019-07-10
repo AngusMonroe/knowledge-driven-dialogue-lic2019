@@ -3,9 +3,13 @@ import sys
 
 import numpy as np
 
-import answer_rank.config as config
+import config
+from config import TRAIN_SIZE
+from utils import np_utils, pkl_utils
 
 
+# Since we have many features that measure the correlation/similarity/distance
+# between search_term and product_title/product_description, we implement this base class.
 class BaseEstimator:
     def __init__(self, obs_corpus, target_corpus, aggregation_mode, id_list=None, aggregation_mode_prev=""):
         self.obs_corpus = obs_corpus
@@ -20,6 +24,13 @@ class BaseEstimator:
         self.double_aggregation = False
         if self.aggregator_prev != [None]:
             # the output of transform_one is a list of list, i.e., [[...], [...], [...]]
+            # self.aggregator_prev is used to aggregate the inner list
+            # This is used for the following features:
+            # 1. EditDistance_Ngram
+            # 2. CompressionDistance_Ngram
+            # 3. Word2Vec_CosineSim
+            # 4. WordNet_Path_Similarity, WordNet_Lch_Similarity, WordNet_Wup_Similarity
+            # which are very time consuming to compute the inner list
             self.double_aggregation = True
 
     def _check_aggregation_mode(self, aggregation_mode):
@@ -78,3 +89,91 @@ class BaseEstimator:
         else:
             res = np.asarray(score, dtype=float)
         return res
+
+
+# Wrapper for generating standalone feature, e.g., 
+# count of words in search_term
+# class StandaloneFeatureWrapper:
+#     def __init__(self, generator, dfAll, obs_fields, param_list, feat_dir, logger, force_corr=False):
+#         self.generator = generator
+#         self.dfAll = dfAll
+#         self.obs_fields = obs_fields
+#         self.param_list = param_list
+#         self.feat_dir = feat_dir
+#         self.logger = logger
+#         self.force_corr = force_corr
+#
+#     def go(self):
+#         y_train = self.dfAll["relevance"].values[:TRAIN_SIZE]
+#         for obs_field in self.obs_fields:
+#             if obs_field not in self.dfAll.columns:
+#                 self.logger.info("Skip %s"%obs_field)
+#                 continue
+#             obs_corpus = self.dfAll[obs_field].values
+#             ext = self.generator(obs_corpus, None, *self.param_list)
+#             x = ext.transform()
+#             if isinstance(ext.__name__(), list):
+#                 for i,feat_name in enumerate(ext.__name__()):
+#                     dim = 1
+#                     fname = "%s_%s_%dD"%(feat_name, obs_field, dim)
+#                     pkl_utils._save(os.path.join(self.feat_dir, fname+config.FEAT_FILE_SUFFIX), x[:,i])
+#                     corr = np_utils._corr(x[:TRAIN_SIZE,i], y_train)
+#                     self.logger.info("%s (%dD): corr = %.6f"%(fname, dim, corr))
+#             else:
+#                 dim = np_utils._dim(x)
+#                 fname = "%s_%s_%dD"%(ext.__name__(), obs_field, dim)
+#                 pkl_utils._save(os.path.join(self.feat_dir, fname+config.FEAT_FILE_SUFFIX), x)
+#                 if dim == 1:
+#                     corr = np_utils._corr(x[:TRAIN_SIZE], y_train)
+#                     self.logger.info("%s (%dD): corr = %.6f"%(fname, dim, corr))
+#                 elif self.force_corr:
+#                     for j in range(dim):
+#                         corr = np_utils._corr(x[:TRAIN_SIZE,j], y_train)
+#                         self.logger.info("%s (%d/%dD): corr = %.6f"%(fname, j+1, dim, corr))
+#
+#
+# # Wrapper for generating pairwise feature, e.g.,
+# # intersect count of words between search_term and product_title
+# class PairwiseFeatureWrapper:
+#     def __init__(self, generator, dfAll, obs_fields, target_fields, param_list, feat_dir, logger, force_corr=False):
+#         self.generator = generator
+#         self.dfAll = dfAll
+#         self.obs_fields = obs_fields
+#         self.target_fields = target_fields
+#         self.param_list = param_list
+#         self.feat_dir = feat_dir
+#         self.logger = logger
+#         self.force_corr = force_corr
+#
+#     def go(self):
+#         y_train = self.dfAll["relevance"].values[:TRAIN_SIZE]
+#         for obs_field in self.obs_fields:
+#             if obs_field not in self.dfAll.columns:
+#                 self.logger.info("Skip %s"%obs_field)
+#                 continue
+#             obs_corpus = self.dfAll[obs_field].values
+#             for target_field in self.target_fields:
+#                 if target_field not in self.dfAll.columns:
+#                     self.logger.info("Skip %s"%target_field)
+#                     continue
+#                 target_corpus = self.dfAll[target_field].values
+#                 ext = self.generator(obs_corpus, target_corpus, *self.param_list)
+#                 x = ext.transform()
+#                 if isinstance(ext.__name__(), list):
+#                     for i,feat_name in enumerate(ext.__name__()):
+#                         dim = 1
+#                         fname = "%s_%s_x_%s_%dD"%(feat_name, obs_field, target_field, dim)
+#                         pkl_utils._save(os.path.join(self.feat_dir, fname+config.FEAT_FILE_SUFFIX), x[:,i])
+#                         corr = np_utils._corr(x[:TRAIN_SIZE,i], y_train)
+#                         self.logger.info("%s (%dD): corr = %.6f"%(fname, dim, corr))
+#                 else:
+#                     dim = np_utils._dim(x)
+#                     fname = "%s_%s_x_%s_%dD"%(ext.__name__(), obs_field, target_field, dim)
+#                     pkl_utils._save(os.path.join(self.feat_dir, fname+config.FEAT_FILE_SUFFIX), x)
+#                     if dim == 1:
+#                         corr = np_utils._corr(x[:TRAIN_SIZE], y_train)
+#                         self.logger.info("%s (%dD): corr = %.6f"%(fname, dim, corr))
+#                     elif self.force_corr:
+#                         for j in range(dim):
+#                             corr = np_utils._corr(x[:TRAIN_SIZE,j], y_train)
+#                             self.logger.info("%s (%d/%dD): corr = %.6f"%(fname, j+1, dim, corr))

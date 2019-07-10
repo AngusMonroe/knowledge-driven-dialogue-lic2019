@@ -1,94 +1,63 @@
+# Xgb ranker
+
 import numpy as np
-import matplotlib
+from xgboostextension import XGBRanker
+from pkl_util import load_pkl, to_pkl
+import config
+import json
+import codecs
+from glob import glob
 
-matplotlib.use('Agg')
-import xgboost as xgb
 
 
-class XGBRegressor:
-    def __init__(self, booster='gbtree', base_score=0., colsample_bylevel=1.,
-                 colsample_bytree=0.7, gamma=0.2, learning_rate=0.01, max_delta_step=0.,
-                 max_depth=6, min_child_weight=1., missing=None, n_estimators=800,
-                 nthread=32, objective='reg:linear', reg_alpha=0.05, reg_lambda=1.,
-                 reg_lambda_bias=0., seed=0, silent=True, subsample=0.9
-                 ):
-        self.param = {
-            "objective": objective,
-            "booster": booster,
-            "eta": learning_rate,
-            "max_depth": max_depth,
-            "colsample_bylevel": colsample_bylevel,
-            "colsample_bytree": colsample_bytree,
-            "subsample": subsample,
-            "min_child_weight": min_child_weight,
-            "gamma": gamma,
-            "alpha": reg_alpha,
-            "lambda": reg_lambda,
-            "lambda_bias": reg_lambda_bias,
-            "seed": seed,
-            "silent": 1 if silent else 0,
-            "nthread": nthread,
-            "max_delta_step": max_delta_step,
-        }
-        self.missing = missing if missing is not None else np.nan
-        self.n_estimators = n_estimators
-        self.base_score = base_score
+def train(train_data, y, num_each_group):
+    print("Start Training...")
+    CASE_NUM = train_data.shape[0]
+    GROUPS_NUM = int(CASE_NUM/num_each_group)
+    assert CASE_NUM % GROUPS_NUM ==0
 
-    def __str__(self):
-        return self.__repr__()
+    X_groups = np.arange(0, GROUPS_NUM).repeat(num_each_group)
 
-    def __repr__(self):
-        return ("%s(booster=\'%s\', base_score=%f, colsample_bylevel=%f, \n"
-                "colsample_bytree=%f, gamma=%f, learning_rate=%f, max_delta_step=%f, \n"
-                "max_depth=%d, min_child_weight=%f, missing=\'%s\', n_estimators=%d, \n"
-                "nthread=%d, objective=\'%s\', reg_alpha=%f, reg_lambda=%f, \n"
-                "reg_lambda_bias=%f, seed=%d, silent=%d, subsample=%f)" % (
-                    self.__class__.__name__,
-                    self.param["booster"],
-                    self.base_score,
-                    self.param["colsample_bylevel"],
-                    self.param["colsample_bytree"],
-                    self.param["gamma"],
-                    self.param["eta"],
-                    self.param["max_delta_step"],
-                    self.param["max_depth"],
-                    self.param["min_child_weight"],
-                    str(self.missing),
-                    self.n_estimators,
-                    self.param["nthread"],
-                    self.param["objective"],
-                    self.param["alpha"],
-                    self.param["lambda"],
-                    self.param["lambda_bias"],
-                    self.param["seed"],
-                    self.param["silent"],
-                    self.param["subsample"],
-                ))
+    X = np.concatenate([X_groups[:, None], train_data], axis=1)
 
-    def fit(self, X, y, feature_names=None):
-        data = xgb.DMatrix(X, label=y, missing=self.missing, feature_names=feature_names)
-        data.set_base_margin(self.base_score * np.ones(X.shape[0]))
-        self.model = xgb.train(self.param, data, self.n_estimators)
-        return self
+    ranker = XGBRanker(n_estimators=150, learning_rate=0.1, subsample=1.0,max_depth=6)
 
-    def predict(self, X, feature_names=None):
-        data = xgb.DMatrix(X, missing=self.missing, feature_names=feature_names)
-        data.set_base_margin(self.base_score * np.ones(X.shape[0]))
-        y_pred = self.model.predict(data)
-        return y_pred
+    ranker.fit(X, y, eval_metric=['ndcg', 'map@5-'])
 
-    def plot_importance(self):
-        ax = xgb.plot_importance(self.model)
-        self.save_topn_features()
-        return ax
+    to_pkl(ranker, config.model_save_path)
+    return ranker
 
-    def save_topn_features(self, fname="XGBRegressor_topn_features.txt", topn=-1):
-        ax = xgb.plot_importance(self.model)
-        yticklabels = ax.get_yticklabels()[::-1]
-        if topn == -1:
-            topn = len(yticklabels)
-        else:
-            topn = min(topn, len(yticklabels))
-        with open(fname, "w") as f:
-            for i in range(topn):
-                f.write("%s\n" % yticklabels[i].get_text())
+
+def predict(test_data, ranker, num_each_group, predict_save):
+    print("Start predicting...")
+    fw = codecs.open(predict_save, 'w')
+    CASE_NUM = test_data.shape[0]
+    GROUPS_NUM = int(CASE_NUM / num_each_group)
+    assert CASE_NUM % GROUPS_NUM == 0
+
+    X_groups = np.arange(0, GROUPS_NUM).repeat(num_each_group)
+    X = np.concatenate([X_groups[:, None], test_data], axis=1)
+    y_pred = ranker.predict(X)
+    y_pred = y_pred.reshape(-1, 3)
+    res = y_pred.argmax(axis=1).tolist()
+    to_pkl(res, config.predict_index_save)
+    with open(config.test_sample_file, 'r') as fr:
+        for ix, line in zip(res, fr):
+            data = json.loads(line.strip("\n"))
+            preds = data["preds"]
+            pred = preds[ix]
+            fw.write(pred+"\n")
+    fw.close()
+
+
+if __name__ == '__main__':
+    if len(glob(config.model_save_path)) == 0:
+        train_data = load_pkl(config.train_file)
+        y = load_pkl(config.target_file)
+        print(y[:12])
+        ranker = train(train_data, y, 3)
+    else:
+        ranker = load_pkl(config.model_save_path)
+    test_data = load_pkl(config.test_file)
+    predict(test_data, ranker, 3, config.predict_save)
+

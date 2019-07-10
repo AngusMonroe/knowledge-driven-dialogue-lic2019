@@ -3,13 +3,14 @@ import json
 import configargparse
 import operator
 from tqdm import tqdm
-from answer_rank.eval import calc_f1, calc_bleu
+from eval import calc_f1, calc_bleu
 import random
 import pickle
 import pandas as pd
 # random.seed(2019)
 import os
-import answer_rank.config
+import config
+import numpy as np
 
 def to_pandas(data_dir, df):
     file_names = os.listdir(data_dir)
@@ -30,10 +31,10 @@ def make_samples(predict_dir, target_file, topic_file, src_file, sample_save, is
     df = pd.DataFrame()
     df = to_pandas(predict_dir, df)
 
-    columns = df.columns.tolist()
+    # columns = df.columns.tolist()
 
-    for c in columns:
-        df[c] = df[c].apply(lambda s: s + "\t" + str(config.model_weight_dict[c] / 9054))
+    # for c in columns:
+        # df[c] = df[c].apply(lambda s: s + "\t" + str(config.model_weight_dict[c] / 9054))
 
     print("shape of df: ", df.shape)
 
@@ -84,7 +85,6 @@ def make_samples(predict_dir, target_file, topic_file, src_file, sample_save, is
     fw.close()
 
 
-
 def create_rank_dataset(sample_save, dataset_save, is_training):
     fw = open(dataset_save, 'w')
     fw.write("preds\tbeam_score\tmodel_weight\ttgt\tsrc\tscore\n")
@@ -114,20 +114,34 @@ def create_rank_dataset(sample_save, dataset_save, is_training):
     best_fw.close()
 
 
+def create_two_stage_dataset(sample_save, src_save):
+    fw = open(src_save, 'w')
+    with open(sample_save, 'r') as fr:
+        for line in tqdm(fr, desc="CreateDataset"):
+            sample = json.loads(line.strip("\n"))
+            preds = sample["preds"]
+            preds = [pred.split("\t")[0] for pred in preds]
+            preds = np.array(preds).reshape(-1, 27).tolist()
+            for pred in preds:
+                src = " [SEP] ".join(pred)
+                fw.write(src + "\n")
+    fw.close()
+
+
 def dataset_opt(parser):
-    parser.add_argument("--predict_dir", "-predict_dir", type=str, default="/home/daizelin/kbqa-onmt/outputs/result/test_2/")
+    parser.add_argument("--predict_dir", "-predict_dir", type=str, default="/home/daizelin/kbqa-onmt/outputs/result/test/")
     parser.add_argument("--target_file", "-target_file", type=str, default="data/dev.tgt")
     parser.add_argument("--topic_file", "-topic_file", type=str, default="data/test_topic.txt")
     parser.add_argument("--src_file", "-src_file", type=str, default="data/test.src")
     parser.add_argument("--sample_save", "-sample_save", type=str, default="data/samples.json")
-    parser.add_argument("--dataset_save", "-dataset_save", type=str, default="/home/daizelin/answer_rank/data/test_raw.txt")
+    parser.add_argument("--dataset_save", "-dataset_save", type=str, default="/home/daizelin/answer_rank/data/test_src.txt")
     parser.add_argument("--is_training", "-is_training", type=bool, default=False)
 
 
 def main(opt):
     make_samples(opt.predict_dir, opt.target_file, opt.topic_file, opt.src_file, opt.sample_save, opt.is_training)
-    create_rank_dataset(opt.sample_save, opt.dataset_save, opt.is_training)
-
+    # create_rank_dataset(opt.sample_save, opt.dataset_save, opt.is_training)
+    create_two_stage_dataset(opt.sample_save, opt.dataset_save)
 
 if __name__ == '__main__':
     parser = configargparse.ArgumentParser()
